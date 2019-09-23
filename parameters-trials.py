@@ -40,10 +40,9 @@ APMREPO = TEMPFOLDER + "/apmrepo"
 
 def setup():
 	"""
-    Prepare folders and get Ardupilot repo.
+    Prepare a temporary folder and get Ardupilot repo.
 
-    """
-    
+    """   
     ## Preseting the current folder
 	path = os.getcwd()
 	print ("\nThe current working directory is %s" % path)
@@ -64,109 +63,122 @@ def setup():
 		print("An exception occurred: ArduPilot download error.")
 		sys.exit(1)
 	
-def fetchVehicleReleases(thisurl):
-	"""
-    Fetch firmware.ardupilot.org all first level folders for each vehicle.
 
-    """
-	links = []
-	#Define HTML Parser
-	class parseText(HTMLParser):
-		def handle_starttag(self, tag, attrs):
-			if tag != 'a':
-				return
-			attr = dict(attrs)
-			links.append(attr)
 
-	#Create instance of HTML parser
-	lParser = parseText()
-	#Feed HTML file into parsers
-	try:
-		lParser.feed(urllib.request.urlopen(thisurl).read().decode('utf8'))
-	except:
-		print("An exception occurred: folders list download error.")
-		#sys.exit(1) #comment to make easer debug (temporary)	
-	finally:
-		lParser.links = []
-		lParser.close()
-		return links
-
-def fetchAllStableReleases(thisUrl, listOfVehicles):
+def fetch_stable_releases(thisUrl, listOfVehicles):
 	"""
     Select folders which are named as stable for older versions.
 
     """
+
+	def fetch_vehicle_subfolders(thisurl):
+		"""
+		Fetch firmware.ardupilot.org/baseURL all first level folders for a given base URL.
+
+		"""
+		links = []
+		#Define HTML Parser
+		class parseText(HTMLParser):
+			def handle_starttag(self, tag, attrs):
+				if tag != 'a':
+					return
+				attr = dict(attrs)
+				links.append(attr)
+		#Create instance of HTML parser
+		lParser = parseText()
+		#Feed HTML file into parsers
+		try:
+			lParser.feed(urllib.request.urlopen(thisurl).read().decode('utf8'))
+		except:
+			print("An exception occurred: folders list download error.")
+			#sys.exit(1) #comment to make easer debug (temporary)	
+		finally:
+			lParser.links = []
+			lParser.close()
+			return links
+
 	stableFirmwares = []
 	for f in listOfVehicles:
-		firmwares = fetchVehicleReleases(thisUrl + f)
-		for l in firmwares:    #Non clever way to filter the strings
+		firmwares = fetch_vehicle_subfolders(thisUrl + f)
+		for l in firmwares:    # Non clever way to filter the strings for filter only stable folders
 			foo = str(l)
 			if (foo.find("stable")) > 0:
 				stableFirmwares.append(thisUrl[:-1] + foo[10:-2])  
 
 	return stableFirmwares
 
-def fectchAstableCommit(rootLink, board, file):
+def get_commit_dict(stableReleases):
 	"""
-    For a stable folder, gets a git hash of its build.
+	For informed releases, return a dict git hashs of its build.
 
-    It relies on a default board.
+	"""    	
 
-    """
+	def fetch_commit_hash(rootLink, board, file):
+		"""
+		For a binnary folder, gets a git hash of its build.
 
-	fetchLink = rootLink + '/' + board + '/' + file
-	try:
-		with urllib.request.urlopen(fetchLink) as response:
-			tmpResponse = response.read().decode("utf-8")	
-			commitDetails = tmpResponse.split("\n")
-			commitID = commitDetails[0][7:]
-			version =  commitDetails[4]
-			versionVehicle = version.split(":")[0]
-			#versionNumber = version.split("to ")[1] # This lie is not standard between vechicles.
-	
-			## counter measures
-			digits = re.match('.+([0-9])[^0-9]*$', version) # It is not clever		
-			lastDigit = digits.start(1) 					#
-			m = re.search(r"\d", version)					#
-			firstDigit = m.start()							#
-			###
-	
-			versionNumber = version[firstDigit:lastDigit+1]
-			#versionCode = versionVehicle.lstrip() #+ '-' + versionNumber
-			#print('|' + commitID + '|' + versionCode + '|')
-			return versionVehicle.lstrip(), versionNumber, commitID		
-	except:
-		print("An exception occurred: " + file + " download and decode error. Link: " + fetchLink)
-		#sys.exit(1) #comment to make easer debug (temporary)	
-		return "error", "error" # APM does not have the default board. Deal with it latter
+		It relies on a default board.
 
-def getCommitsToCheckout(stableReleases):
+		"""
+		fetchLink = rootLink + '/' + board + '/' + file
+		
+		try:
+			with urllib.request.urlopen(fetchLink) as response:
+				tmpResponse = response.read().decode("utf-8")	
+				commitDetails = tmpResponse.split("\n")
+				commitID = commitDetails[0][7:]
+				version =  commitDetails[4]
+				versionVehicle = version.split(":")[0]
+				#versionNumber = version.split("to ")[1] # This lie is not standard between vechicles.
+		
+				## counter measures
+				digits = re.match('.+([0-9])[^0-9]*$', version) # It is not clever		
+				lastDigit = digits.start(1) 					#
+				m = re.search(r"\d", version)					#
+				firstDigit = m.start()							#
+				###
+		
+				versionNumber = version[firstDigit:lastDigit+1]
+				#versionCode = versionVehicle.lstrip() #+ '-' + versionNumber
+				#print('|' + commitID + '|' + versionCode + '|')
+				return versionVehicle.lstrip(), versionNumber, commitID		
+		except:
+			print("An exception occurred: " + file + " download and decode error. Link: " + fetchLink)
+			#sys.exit(1) #comment to make easer debug (temporary)	
+			return "error", "error" # APM does not have the default board. Deal with it latter
+	####################################################################################################
+
+	commitsAndCodes = {}
+	cleanRegisters = {}
+
+	for j in range(0,len(stableReleases)-1):
+		commitsAndCodes[j] = fetch_commit_hash(stableReleases[j], DEFAULTBOARD, COMMITFILE)
+
+	for i in commitsAndCodes:
+		if commitsAndCodes[i][0] != 'error':
+			cleanRegisters[i] = commitsAndCodes[i] 
+			#print(commitsAndCodes[i][0] + ' - ' + commitsAndCodes[i][1] + ' - ' + commitsAndCodes[i][2])
     
-    commitsAndCodes = {}
-    cleanRegisters = {}
-
-    for j in range(0,len(stableReleases)-1):
-        commitsAndCodes[j] = fectchAstableCommit(stableReleases[j], DEFAULTBOARD, COMMITFILE)
-
-    for i in commitsAndCodes:
-        if commitsAndCodes[i][0] != 'error':
-            cleanRegisters = commitsAndCodes[i] # print(commitsAndCodes[i][0] + ' - ' + commitsAndCodes[i][1] + ' - ' + commitsAndCodes[i][2])
-    
-    return cleanRegisters
+	return cleanRegisters
 
 
 # 1 - prepare
 #setup()
+################################################################
+
 
 # 2 - get releases
-allStableReleases = fetchAllStableReleases(BASEURL, VEHICLES)
-commitsToGetParameters = getCommitsToCheckout(allStableReleases)
+allStableReleases = fetch_stable_releases(BASEURL, VEHICLES)
+commitsAndVehicles = get_commit_dict(allStableReleases)
 
-for i in commitsToGetParameters:
-    print(commitsToGetParameters[i][0] + ' - ' + commitsToGetParameters[i][1] + ' - ' + commitsToGetParameters[i][2])
+for i in commitsAndVehicles:
+    print(commitsAndVehicles[i][0] + ' - ' + commitsAndVehicles[i][1] + ' - ' + commitsAndVehicles[i][2])
 
+################################################################
 
-
+# 3 - 
+# 4 - 
+# 5 - 
 
 
 
