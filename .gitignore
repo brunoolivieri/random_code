@@ -1,6 +1,7 @@
 # Files folder
 TMPWORKFOLDER/
-
+.autogit
+.vscode
 
 
 
