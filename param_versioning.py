@@ -13,15 +13,16 @@
 """
 
 import os
+import shutil
 import sys
 import subprocess
+import time
 import pandas as pd
 from html.parser import HTMLParser
 import urllib.request
 import re
 from optparse import OptionParser
-from param import (Library, Parameter, Vehicle, known_group_fields,
-                   known_param_fields, required_param_fields)
+
 
 
 parser = OptionParser("python3 param_versioning.py [options]")
@@ -30,7 +31,6 @@ parser.add_option("-v", "--verbose", dest='verbose', action='store_true', defaul
 (opts, args) = parser.parse_args()
 
 error_count = 0
-
 
 ## Parameters
 COMMITFILE = "git-version.txt"
@@ -69,10 +69,23 @@ def debug(str_to_print):
         print(str_to_print)
 
 def error(str_to_print):
-    """Show errors."""
+    """Show and count the errors."""
     global error_count
     error_count += 1
     print(str_to_print)
+
+def remove_folder(folder):
+    debug("\nChecking directory %s for delete" % folder)
+    if os.path.isdir(folder):
+        debug("\nTrying to delete directory " + folder)
+        try:
+            shutil.rmtree(folder) # Does not work in Windos as expected. eate the directory   
+            time.sleep(1)         # On linux/vagrant may delay time enough to setup() get error on re-create the folder
+            debug("\nSuccessfully deleted folder " + folder)
+        except OSError as e:  # if failed, report it back to the user 
+            error("Error: %s - %s." % (e.filename, e.strerror))
+            error("Failed to delete " + folder)
+            #sys.exit(1)  
 
 def setup():
     """
@@ -85,12 +98,14 @@ def setup():
     path = os.getcwd()
     debug("\nThe current working directory is %s" % path)
 
+    remove_folder(TEMPFOLDER)  # Cleanning up folder and subfolders. TO-DO: Check a possible update of a valid git repo?
+    
     ## Creating a temporary folder to work with some files and downloads
     try:
         os.mkdir(TEMPFOLDER)
     except OSError:
         error("Creation of the directory %s failed" % TEMPFOLDER)
-        #sys.exit(1)
+        sys.exit(1)
     else:
         debug("Successfully created the directory %s " % TEMPFOLDER)
     
@@ -98,7 +113,8 @@ def setup():
     # TO-DO: use GitPyhton?
     try:
         debug("GitHub Ardupilot clonning process finished")
-        os.system("git clone --recurse-submodules https://github.com/ArduPilot/ardupilot.git  "  + APMREPO) #  # TO-DO: use GitPyhton? it is really necessary get all submodules? #TO-DO: remove submodules?
+        #os.system("git clone --recurse-submodules https://github.com/ArduPilot/ardupilot.git  "  + APMREPO) #  # TO-DO: use GitPyhton? it is really necessary get all submodules? #TO-DO: remove submodules?
+        os.system("git clone https://github.com/ArduPilot/ardupilot.git  "  + APMREPO) # Needs to get all submodules? 
     except:
         error("An exception occurred: ArduPilot repo download error.")
         sys.exit(1)
@@ -137,18 +153,19 @@ def fetch_releases(firmware_url, vehicles):
             return links
     ######################################################################################    
 
-    debug("Cleaning results")
+    debug("Cleanning resfetched links for wanted folders")
     stableFirmwares = []
     for f in vehicles:
         page_links = fetch_vehicle_subfolders(firmware_url + f)
         for l in page_links:    # Non clever way to filter the strings for filter folders
-            foo = str(l)
-            if foo.find("stable")>0 :
-                stableFirmwares.append(firmware_url[:-1] + foo[10:-2])  
-            elif foo.find("latest") > 0 :
-                stableFirmwares.append(firmware_url[:-1] + foo[10:-2])  
-            elif foo.find("beta") > 0:
-                stableFirmwares.append(firmware_url[:-1] + foo[10:-2])  
+            version_folder = str(l)
+            #print(version_folder)
+            if version_folder.find("stable")>0 and not version_folder.endswith("stable"): # If finish with
+                stableFirmwares.append(firmware_url[:-1] + version_folder[10:-2])  
+            elif version_folder.find("latest") > 0 :
+                stableFirmwares.append(firmware_url[:-1] + version_folder[10:-2])  
+            elif version_folder.find("beta") > 0:
+                stableFirmwares.append(firmware_url[:-1] + version_folder[10:-2])  
 
     return stableFirmwares # links for the firmwares folders
 
@@ -270,12 +287,14 @@ def generate_rst_files(commits_to_checkout_and_parse):
         version = str(commits_to_checkout_and_parse[i][1])
         commit_id = str(commits_to_checkout_and_parse[i][2])
 
-        if     ( # TO-DO: exceptions to deal OR insert all at once in wiki repo because it is static data
+        # These  have errors on parsing using param_parser.py 
+        # TO-DO: exceptions to deal OR insert all at once in wiki repo because it is static data?    
+        if  ( 
             "3.2.1" in version or #last stable APM Copter
             "3.4.0" in version or # last stable APM Plane
             "2.42" in version or # last stable APM Rover
             "2.51" in version or # last beta APM Rover?
-            "0.7.2" in version # last APM Antenna tracker???            
+            "0.7.2" in version or # last APM Antenna tracker???    
             ):
             debug("Ignoring APM version:\t" + vehicle + "\t" + version)
             continue
@@ -302,7 +321,7 @@ def generate_rst_files(commits_to_checkout_and_parse):
             os.chdir(BASEPATH)
         except:
             error("An exception occurred: Error while parsing Parameters.rst | details:\t" +  vehicle + "\t" + version  + "\t" + commit_id)
-            sys.exit(1)
+            #sys.exit(1)
         print("")
 
     
@@ -311,34 +330,34 @@ def generate_rst_files(commits_to_checkout_and_parse):
 
 
 
-# 1 - prepare
-#setup()
+# Step 1 - prepare
+setup()
 ################################################################
 
-# 2 - get releases
+# Step 2 - get releases
 feteched_releases = fetch_releases(BASEURL, ALLVEHICLES)
 commits_to_checkout_and_parse = get_commit_dict(feteched_releases)
+################################################################
 
-# Partial results
+# Between steps - Partial results
 print("\n\tList of parameters files to generate:\n")
 for i in commits_to_checkout_and_parse:
     print(commits_to_checkout_and_parse[i][0] + ' - ' + commits_to_checkout_and_parse[i][1] + ' - ' + commits_to_checkout_and_parse[i][2])
 print("")
 ################################################################
 
-# 3 - Generate RST file for each commit ID
+# Step 3 - Generate RST file for each commit ID
 generate_rst_files(commits_to_checkout_and_parse)
+################################################################
+
+# Step 4 - Run a anchor replacement. (a sed? re-uses the generate_rst_files()?)
+
+# Step 5 option A - If runs at Ardupilot repo, creates a tgz to download by wiki build script.
+
+# Step 5 option B - If runs at Wiki repo, just move generated files to right places.
 
 
-# TO-DO:
-# 4 - Move the files to the wiki pages? 
-# OR: change the script to run on autotest server and produce a .tgz for each vehicle with all parameter version and download it in wiki build script and expand it?
-
-# Would be possible to get the file straightforward from git hub without clone the repo? May I trust links like: https://raw.githubusercontent.com/ArduPilot/ardupilot_wiki/4dedc67f8734bae3318f803480b2c5d2dc0e38c5/common/source/docs/common-parameter-reset.rst
-
-
-
-sys.exit(error_count)
+#sys.exit(error_count)
 
 
 
