@@ -1,3 +1,1 @@
-# multiparameters
-
-Generic scripts in python
+Generic code
